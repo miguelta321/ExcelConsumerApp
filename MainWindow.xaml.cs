@@ -13,7 +13,7 @@ namespace ExcelConsumerApp
 
             DataContext = new MainViewModel(
                 new WindowsFileDialogService(),
-                new ClosedXmlExcelReader(),
+                new ExcelDataReaderExcelReader(),
                 new HeaderNormalizer(),
                 new MergeService(),
                 new ClosedXmlExcelWriter()
