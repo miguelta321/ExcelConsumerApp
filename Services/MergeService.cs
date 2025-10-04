@@ -93,8 +93,9 @@ namespace ExcelConsumerApp.Services
             }
 
             // Paso 3: Construir índices por hoja con optimizaciones
-            var sheetData = new Dictionary<string, Dictionary<string, Dictionary<string, string?>>>();
+            var sheetData = new Dictionary<string, Dictionary<string, List<Dictionary<string, string?>>>>();
             var allKeys = new HashSet<string>();
+            var keyMaxOccurrences = new Dictionary<string, int>();
             var processedSheets = 0;
 
             foreach (var sheet in allSheets)
@@ -108,7 +109,7 @@ namespace ExcelConsumerApp.Services
                 if (!normalizedHeaders.TryGetValue(keyColumnNormalized, out var originalKeyHeader))
                     continue;
 
-                var sheetDict = new Dictionary<string, Dictionary<string, string?>>();
+                var sheetDict = new Dictionary<string, List<Dictionary<string, string?>>>();
                 
                 // Procesar filas en chunks para mejor rendimiento con archivos grandes
                 const int CHUNK_SIZE = 1000;
@@ -125,7 +126,18 @@ namespace ExcelConsumerApp.Services
                         if (string.IsNullOrWhiteSpace(key)) continue;
 
                         allKeys.Add(key);
-                        sheetDict[key] = row;
+                        if (!sheetDict.TryGetValue(key, out var rowsForKey))
+                        {
+                            rowsForKey = new List<Dictionary<string, string?>>();
+                            sheetDict[key] = rowsForKey;
+                        }
+
+                        rowsForKey.Add(row);
+
+                        if (!keyMaxOccurrences.TryGetValue(key, out var currentMax) || rowsForKey.Count > currentMax)
+                        {
+                            keyMaxOccurrences[key] = rowsForKey.Count;
+                        }
                     }
                 }
                 
@@ -172,46 +184,54 @@ namespace ExcelConsumerApp.Services
                     Console.WriteLine($"MergeService: Procesando clave {processedKeys + 1}/{totalKeys}");
                 }
 
-                var outputRow = new Dictionary<string, string?>
-                {
-                    ["Key"] = key
-                };
+                var maxOccurrences = keyMaxOccurrences.TryGetValue(key, out var occurrences) ? Math.Max(occurrences, 1) : 1;
 
-                foreach (var sheet in allSheets)
+                for (var occurrenceIndex = 0; occurrenceIndex < maxOccurrences; occurrenceIndex++)
                 {
-                    var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheet.FileName);
-                    var sheetKey = $"{fileNameWithoutExt}:{sheet.SheetName}";
-                    var originalSheetKey = $"{Path.GetFileName(sheet.FileName)}:{sheet.SheetName}";
-                    
-                    if (sheetData.TryGetValue(originalSheetKey, out var sheetDict) &&
-                        sheetDict.TryGetValue(key, out var rowData))
+                    var outputRow = new Dictionary<string, string?>
                     {
-                        foreach (var header in sheet.Headers)
+                        ["Key"] = key
+                    };
+
+                    foreach (var sheet in allSheets)
+                    {
+                        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheet.FileName);
+                        var sheetKey = $"{fileNameWithoutExt}:{sheet.SheetName}";
+                        var originalSheetKey = $"{Path.GetFileName(sheet.FileName)}:{sheet.SheetName}";
+
+                        if (sheetData.TryGetValue(originalSheetKey, out var sheetDict) &&
+                            sheetDict.TryGetValue(key, out var rowsForKey) &&
+                            occurrenceIndex < rowsForKey.Count)
                         {
-                            var normalizedHeader = normalizer.Normalize(header);
-                            if (normalizedHeader == keyColumnNormalized)
-                                continue;
-                                
-                            var prefixedHeader = $"{sheetKey}:{header}";
-                            var value = rowData.TryGetValue(header, out var cellValue) ? cellValue : null;
-                            outputRow[prefixedHeader] = value;
+                            var rowData = rowsForKey[occurrenceIndex];
+                            foreach (var header in sheet.Headers)
+                            {
+                                var normalizedHeader = normalizer.Normalize(header);
+                                if (normalizedHeader == keyColumnNormalized)
+                                    continue;
+
+                                var prefixedHeader = $"{sheetKey}:{header}";
+                                var value = rowData.TryGetValue(header, out var cellValue) ? cellValue : null;
+                                outputRow[prefixedHeader] = value;
+                            }
+                        }
+                        else
+                        {
+                            foreach (var header in sheet.Headers)
+                            {
+                                var normalizedHeader = normalizer.Normalize(header);
+                                if (normalizedHeader == keyColumnNormalized)
+                                    continue;
+
+                                var prefixedHeader = $"{sheetKey}:{header}";
+                                outputRow[prefixedHeader] = null;
+                            }
                         }
                     }
-                    else
-                    {
-                        foreach (var header in sheet.Headers)
-                        {
-                            var normalizedHeader = normalizer.Normalize(header);
-                            if (normalizedHeader == keyColumnNormalized)
-                                continue;
-                                
-                            var prefixedHeader = $"{sheetKey}:{header}";
-                            outputRow[prefixedHeader] = null;
-                        }
-                    }
+
+                    outputRows.Add(outputRow);
                 }
 
-                outputRows.Add(outputRow);
                 processedKeys++;
             }
 
@@ -292,13 +312,14 @@ namespace ExcelConsumerApp.Services
             }
 
             // Paso 3: Construir índices por hoja
-            var sheetData = new Dictionary<string, Dictionary<string, Dictionary<string, string?>>>();
+            var sheetData = new Dictionary<string, Dictionary<string, List<Dictionary<string, string?>>>>();
             var allKeys = new HashSet<string>();
+            var keyMaxOccurrences = new Dictionary<string, int>();
 
             foreach (var sheet in allSheets)
             {
                 var sheetKey = $"{Path.GetFileName(sheet.FileName)}:{sheet.SheetName}";
-                var sheetDict = new Dictionary<string, Dictionary<string, string?>>();
+                var sheetDict = new Dictionary<string, List<Dictionary<string, string?>>>();
 
                 // Encontrar el header original de la columna clave
                 var keyHeaderOriginal = sheet.Headers
@@ -313,7 +334,20 @@ namespace ExcelConsumerApp.Services
                     {
                         var key = keyValue.Trim();
                         allKeys.Add(key);
-                        sheetDict[key] = new Dictionary<string, string?>(row);
+
+                        if (!sheetDict.TryGetValue(key, out var rowsForKey))
+                        {
+                            rowsForKey = new List<Dictionary<string, string?>>();
+                            sheetDict[key] = rowsForKey;
+                        }
+
+                        var copiedRow = new Dictionary<string, string?>(row);
+                        rowsForKey.Add(copiedRow);
+
+                        if (!keyMaxOccurrences.TryGetValue(key, out var currentMax) || rowsForKey.Count > currentMax)
+                        {
+                            keyMaxOccurrences[key] = rowsForKey.Count;
+                        }
                     }
                 }
 
@@ -349,50 +383,57 @@ namespace ExcelConsumerApp.Services
 
             foreach (var key in allKeys.OrderBy(k => k))
             {
-                var outputRow = new Dictionary<string, string?>
-                {
-                    ["Key"] = key
-                };
+                var maxOccurrences = keyMaxOccurrences.TryGetValue(key, out var occurrences) ? Math.Max(occurrences, 1) : 1;
 
-                foreach (var sheet in allSheets)
+                for (var occurrenceIndex = 0; occurrenceIndex < maxOccurrences; occurrenceIndex++)
                 {
-                    var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheet.FileName);
-                    var sheetKey = $"{fileNameWithoutExt}:{sheet.SheetName}";
-                    var originalSheetKey = $"{Path.GetFileName(sheet.FileName)}:{sheet.SheetName}";
-                    
-                    if (sheetData.TryGetValue(originalSheetKey, out var sheetDict) &&
-                        sheetDict.TryGetValue(key, out var rowData))
+                    var outputRow = new Dictionary<string, string?>
                     {
-                        // Llenar todas las columnas de esta hoja (excluyendo la columna clave)
-                        foreach (var header in sheet.Headers)
+                        ["Key"] = key
+                    };
+
+                    foreach (var sheet in allSheets)
+                    {
+                        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheet.FileName);
+                        var sheetKey = $"{fileNameWithoutExt}:{sheet.SheetName}";
+                        var originalSheetKey = $"{Path.GetFileName(sheet.FileName)}:{sheet.SheetName}";
+
+                        if (sheetData.TryGetValue(originalSheetKey, out var sheetDict) &&
+                            sheetDict.TryGetValue(key, out var rowsForKey) &&
+                            occurrenceIndex < rowsForKey.Count)
                         {
-                            // Excluir la columna clave para evitar duplicación
-                            var normalizedHeader = normalizer.Normalize(header);
-                            if (normalizedHeader == keyColumnNormalized)
-                                continue;
-                                
-                            var prefixedHeader = $"{sheetKey}:{header}";
-                            var value = rowData.TryGetValue(header, out var cellValue) ? cellValue : null;
-                            outputRow[prefixedHeader] = value;
+                            // Llenar todas las columnas de esta hoja (excluyendo la columna clave)
+                            var rowData = rowsForKey[occurrenceIndex];
+                            foreach (var header in sheet.Headers)
+                            {
+                                // Excluir la columna clave para evitar duplicación
+                                var normalizedHeader = normalizer.Normalize(header);
+                                if (normalizedHeader == keyColumnNormalized)
+                                    continue;
+
+                                var prefixedHeader = $"{sheetKey}:{header}";
+                                var value = rowData.TryGetValue(header, out var cellValue) ? cellValue : null;
+                                outputRow[prefixedHeader] = value;
+                            }
+                        }
+                        else
+                        {
+                            // No hay datos para esta clave en esta hoja - llenar con null (excluyendo la columna clave)
+                            foreach (var header in sheet.Headers)
+                            {
+                                // Excluir la columna clave para evitar duplicación
+                                var normalizedHeader = normalizer.Normalize(header);
+                                if (normalizedHeader == keyColumnNormalized)
+                                    continue;
+
+                                var prefixedHeader = $"{sheetKey}:{header}";
+                                outputRow[prefixedHeader] = null;
+                            }
                         }
                     }
-                    else
-                    {
-                        // No hay datos para esta clave en esta hoja - llenar con null (excluyendo la columna clave)
-                        foreach (var header in sheet.Headers)
-                        {
-                            // Excluir la columna clave para evitar duplicación
-                            var normalizedHeader = normalizer.Normalize(header);
-                            if (normalizedHeader == keyColumnNormalized)
-                                continue;
-                                
-                            var prefixedHeader = $"{sheetKey}:{header}";
-                            outputRow[prefixedHeader] = null;
-                        }
-                    }
+
+                    outputRows.Add(outputRow);
                 }
-
-                outputRows.Add(outputRow);
             }
 
             var result = new MergedTable
@@ -482,7 +523,8 @@ namespace ExcelConsumerApp.Services
 
             // Paso 4: Procesar datos por streaming
             var allKeys = new HashSet<string>();
-            var sheetData = new Dictionary<string, Dictionary<string, Dictionary<string, string?>>>();
+            var sheetData = new Dictionary<string, Dictionary<string, List<Dictionary<string, string?>>>>();
+            var keyMaxOccurrences = new Dictionary<string, int>();
 
             Console.WriteLine($"MergeService: Procesando datos con streaming...");
 
@@ -503,7 +545,7 @@ namespace ExcelConsumerApp.Services
                     if (!normalizedHeaders.TryGetValue(keyColumnNormalized, out var originalKeyHeader))
                         continue;
 
-                    var sheetDict = new Dictionary<string, Dictionary<string, string?>>();
+                    var sheetDict = new Dictionary<string, List<Dictionary<string, string?>>>();
                     
                     // Procesar datos por streaming
                     await foreach (var row in reader.ReadSheetDataStreamAsync(
@@ -519,7 +561,20 @@ namespace ExcelConsumerApp.Services
                         if (string.IsNullOrWhiteSpace(key)) continue;
 
                         allKeys.Add(key);
-                        sheetDict[key] = row;
+
+                        if (!sheetDict.TryGetValue(key, out var rowsForKey))
+                        {
+                            rowsForKey = new List<Dictionary<string, string?>>();
+                            sheetDict[key] = rowsForKey;
+                        }
+
+                        var rowCopy = new Dictionary<string, string?>(row);
+                        rowsForKey.Add(rowCopy);
+
+                        if (!keyMaxOccurrences.TryGetValue(key, out var currentMax) || rowsForKey.Count > currentMax)
+                        {
+                            keyMaxOccurrences[key] = rowsForKey.Count;
+                        }
                     }
                     
                     sheetData[sheetKey] = sheetDict;
@@ -544,46 +599,53 @@ namespace ExcelConsumerApp.Services
                     Console.WriteLine($"MergeService: Procesando clave {processedKeys + 1}/{totalKeys}");
                 }
 
-                var outputRow = new Dictionary<string, string?>
-                {
-                    ["Key"] = key
-                };
+                var maxOccurrences = keyMaxOccurrences.TryGetValue(key, out var occurrences) ? Math.Max(occurrences, 1) : 1;
 
-                foreach (var sheetHeaders in allSheetHeaders)
+                for (var occurrenceIndex = 0; occurrenceIndex < maxOccurrences; occurrenceIndex++)
                 {
-                    var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheetHeaders.FileName);
-                    var sheetKey = $"{fileNameWithoutExt}:{sheetHeaders.SheetName}";
-                    var originalSheetKey = $"{Path.GetFileName(sheetHeaders.FileName)}:{sheetHeaders.SheetName}";
-                    
-                    if (sheetData.TryGetValue(originalSheetKey, out var sheetDict) &&
-                        sheetDict.TryGetValue(key, out var rowData))
+                    var outputRow = new Dictionary<string, string?>
                     {
-                        foreach (var header in sheetHeaders.Headers)
+                        ["Key"] = key
+                    };
+
+                    foreach (var sheetHeaders in allSheetHeaders)
+                    {
+                        var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheetHeaders.FileName);
+                        var sheetKey = $"{fileNameWithoutExt}:{sheetHeaders.SheetName}";
+                        var originalSheetKey = $"{Path.GetFileName(sheetHeaders.FileName)}:{sheetHeaders.SheetName}";
+
+                        if (sheetData.TryGetValue(originalSheetKey, out var sheetDict) &&
+                            sheetDict.TryGetValue(key, out var rowsForKey) &&
+                            occurrenceIndex < rowsForKey.Count)
                         {
-                            var normalizedHeader = normalizer.Normalize(header);
-                            if (normalizedHeader == keyColumnNormalized)
-                                continue;
-                                
-                            var prefixedHeader = $"{sheetKey}:{header}";
-                            var value = rowData.TryGetValue(header, out var cellValue) ? cellValue : null;
-                            outputRow[prefixedHeader] = value;
+                            foreach (var header in sheetHeaders.Headers)
+                            {
+                                var normalizedHeader = normalizer.Normalize(header);
+                                if (normalizedHeader == keyColumnNormalized)
+                                    continue;
+
+                                var prefixedHeader = $"{sheetKey}:{header}";
+                                var value = rowsForKey[occurrenceIndex].TryGetValue(header, out var cellValue) ? cellValue : null;
+                                outputRow[prefixedHeader] = value;
+                            }
+                        }
+                        else
+                        {
+                            foreach (var header in sheetHeaders.Headers)
+                            {
+                                var normalizedHeader = normalizer.Normalize(header);
+                                if (normalizedHeader == keyColumnNormalized)
+                                    continue;
+
+                                var prefixedHeader = $"{sheetKey}:{header}";
+                                outputRow[prefixedHeader] = null;
+                            }
                         }
                     }
-                    else
-                    {
-                        foreach (var header in sheetHeaders.Headers)
-                        {
-                            var normalizedHeader = normalizer.Normalize(header);
-                            if (normalizedHeader == keyColumnNormalized)
-                                continue;
-                                
-                            var prefixedHeader = $"{sheetKey}:{header}";
-                            outputRow[prefixedHeader] = null;
-                        }
-                    }
+
+                    outputRows.Add(outputRow);
                 }
 
-                outputRows.Add(outputRow);
                 processedKeys++;
             }
 
@@ -697,12 +759,15 @@ namespace ExcelConsumerApp.Services
             // Paso 3: Recolectar todas las claves únicas de todas las hojas
             Console.WriteLine("MergeService: Recolectando claves únicas...");
             var allKeys = new HashSet<string>();
+            var keyMaxOccurrences = new Dictionary<string, int>();
 
             foreach (var plan in processingPlans)
             {
                 ct.ThrowIfCancellationRequested();
 
                 Console.WriteLine($"MergeService: Leyendo claves de {Path.GetFileName(plan.DisplayFileName)}:{plan.SheetName}...");
+
+                var perSheetCounts = new Dictionary<string, int>();
 
                 await using var keyEnumerator = reader
                     .ReadSheetDataStreamAsync(plan.FilePath, plan.SheetName, plan.OriginalHeaders, 100, ct)
@@ -721,20 +786,55 @@ namespace ExcelConsumerApp.Services
                         continue;
 
                     allKeys.Add(key);
+
+                    if (!perSheetCounts.TryGetValue(key, out var currentCount))
+                    {
+                        currentCount = 0;
+                    }
+
+                    perSheetCounts[key] = currentCount + 1;
+                }
+
+                foreach (var (key, count) in perSheetCounts)
+                {
+                    if (!keyMaxOccurrences.TryGetValue(key, out var currentMax) || count > currentMax)
+                    {
+                        keyMaxOccurrences[key] = count;
+                    }
+                }
+            }
+
+            foreach (var key in allKeys)
+            {
+                if (!keyMaxOccurrences.ContainsKey(key))
+                {
+                    keyMaxOccurrences[key] = 1;
                 }
             }
 
             var sortedKeys = allKeys.OrderBy(k => k, StringComparer.Ordinal).ToList();
             Console.WriteLine($"MergeService: Encontradas {sortedKeys.Count} claves únicas. Escribiendo columna clave...");
 
-            var keyToRowIndex = new Dictionary<string, int>(sortedKeys.Count);
+            var keyToRowIndices = new Dictionary<string, List<int>>(sortedKeys.Count);
             var currentRow = 2;
             foreach (var key in sortedKeys)
             {
-                worksheet.Cell(currentRow, 1).Value = key;
-                keyToRowIndex[key] = currentRow;
-                currentRow++;
+                var occurrences = keyMaxOccurrences.TryGetValue(key, out var maxOccurrences)
+                    ? Math.Max(maxOccurrences, 1)
+                    : 1;
+
+                var rowIndices = new List<int>(occurrences);
+                for (var occurrenceIndex = 0; occurrenceIndex < occurrences; occurrenceIndex++)
+                {
+                    worksheet.Cell(currentRow, 1).Value = key;
+                    rowIndices.Add(currentRow);
+                    currentRow++;
+                }
+
+                keyToRowIndices[key] = rowIndices;
             }
+
+            var totalDataRows = keyToRowIndices.Values.Sum(list => list.Count);
 
             Console.WriteLine("MergeService: Integrando datos hoja por hoja...");
 
@@ -749,7 +849,7 @@ namespace ExcelConsumerApp.Services
                 }
 
                 Console.WriteLine($"MergeService: Procesando {Path.GetFileName(plan.DisplayFileName)}:{plan.SheetName}...");
-                var foundKeys = new HashSet<string>();
+                var keyToNextRowPosition = keyToRowIndices.ToDictionary(kvp => kvp.Key, kvp => 0);
 
                 await using var rowEnumerator = reader
                     .ReadSheetDataStreamAsync(plan.FilePath, plan.SheetName, plan.OriginalHeaders, 100, ct)
@@ -767,8 +867,15 @@ namespace ExcelConsumerApp.Services
                     if (string.IsNullOrWhiteSpace(key))
                         continue;
 
-                    if (!keyToRowIndex.TryGetValue(key, out var rowIndex))
+                    if (!keyToRowIndices.TryGetValue(key, out var rowIndices))
                         continue;
+
+                    var nextPosition = keyToNextRowPosition[key];
+                    if (nextPosition >= rowIndices.Count)
+                        continue;
+
+                    var rowIndex = rowIndices[nextPosition];
+                    keyToNextRowPosition[key] = nextPosition + 1;
 
                     var columnIndex = plan.ColumnOffset;
                     foreach (var header in plan.NonKeyHeaders)
@@ -777,30 +884,32 @@ namespace ExcelConsumerApp.Services
                         worksheet.Cell(rowIndex, columnIndex).Value = value ?? string.Empty;
                         columnIndex++;
                     }
-
-                    foundKeys.Add(key);
                 }
 
-                if (foundKeys.Count == keyToRowIndex.Count)
-                    continue;
-
-                foreach (var missingKey in sortedKeys)
+                foreach (var key in sortedKeys)
                 {
-                    if (foundKeys.Contains(missingKey))
+                    if (!keyToRowIndices.TryGetValue(key, out var rowIndices))
                         continue;
 
-                    var rowIndex = keyToRowIndex[missingKey];
-                    var columnIndex = plan.ColumnOffset;
-                    foreach (var header in plan.NonKeyHeaders)
+                    var nextPosition = keyToNextRowPosition.TryGetValue(key, out var writtenCount) ? writtenCount : 0;
+                    if (nextPosition >= rowIndices.Count)
+                        continue;
+
+                    for (var occurrenceIndex = nextPosition; occurrenceIndex < rowIndices.Count; occurrenceIndex++)
                     {
-                        worksheet.Cell(rowIndex, columnIndex).Value = string.Empty;
-                        columnIndex++;
+                        var rowIndex = rowIndices[occurrenceIndex];
+                        var columnIndex = plan.ColumnOffset;
+                        foreach (var header in plan.NonKeyHeaders)
+                        {
+                            worksheet.Cell(rowIndex, columnIndex).Value = string.Empty;
+                            columnIndex++;
+                        }
                     }
                 }
             }
 
             workbook.SaveAs(outputPath);
-            Console.WriteLine($"MergeService: Archivo guardado en {outputPath} con {sortedKeys.Count} filas de datos");
+            Console.WriteLine($"MergeService: Archivo guardado en {outputPath} con {totalDataRows} filas de datos");
 
             return outputPath;
         }
