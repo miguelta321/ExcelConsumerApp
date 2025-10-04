@@ -618,80 +618,8 @@ namespace ExcelConsumerApp.Services
 
             Console.WriteLine($"MergeService: Procesando {fileSheetSelectionsList.Count} archivos con escritura directa...");
 
-            // Paso 1: Leer solo headers de todas las hojas seleccionadas
-            var allSheetHeaders = new List<SheetHeaders>();
-            foreach (var fileSelection in fileSheetSelectionsList)
-            {
-                if (!fileSelection.HasSelectedSheets) continue;
-                
-                var perSheet = await reader.ReadHeadersOnlyAsync(fileSelection.FilePath, ct);
-                var filteredSheets = perSheet.Where(s => fileSelection.SelectedSheets.Contains(s.SheetName));
-                allSheetHeaders.AddRange(filteredSheets);
-            }
-
-            if (!allSheetHeaders.Any())
-                throw new InvalidOperationException("No se encontraron hojas válidas en los archivos.");
-
-            // Paso 2: Validar que la columna clave existe en cada hoja
-            var missingKeySheets = new List<string>();
-            foreach (var sheet in allSheetHeaders)
-            {
-                var normalizedHeaders = sheet.Headers
-                    .Select(h => normalizer.Normalize(h))
-                    .ToHashSet();
-
-                if (!normalizedHeaders.Contains(keyColumnNormalized))
-                {
-                    missingKeySheets.Add($"{Path.GetFileName(sheet.FileName)}:{sheet.SheetName}");
-                }
-            }
-
-            if (missingKeySheets.Any())
-            {
-                throw new InvalidOperationException(
-                    $"La columna clave '{keyColumnNormalized}' no existe en las siguientes hojas:\n{string.Join("\n", missingKeySheets)}\n\n" +
-                    "Verifica que la columna existe en todas las hojas o elige una columna diferente.");
-            }
-
-            // Paso 3: Construir headers de salida
-            var outputHeaders = new List<string>();
-            outputHeaders.Add("Key"); // Primero la columna clave unificada
-
-            foreach (var sheet in allSheetHeaders)
-            {
-                var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheet.FileName);
-                var sheetKey = $"{fileNameWithoutExt}:{sheet.SheetName}";
-                
-                foreach (var header in sheet.Headers)
-                {
-                    var normalizedHeader = normalizer.Normalize(header);
-                    if (normalizedHeader == keyColumnNormalized)
-                        continue; // Excluir la columna clave para evitar duplicación
-                        
-                    var prefixedHeader = $"{sheetKey}:{header}";
-                    outputHeaders.Add(prefixedHeader);
-                }
-            }
-
-            // Paso 4: Crear Excel directamente con escritura streaming
-            using var workbook = new ClosedXML.Excel.XLWorkbook();
-            var worksheet = workbook.Worksheets.Add("Merged");
-
-            // Escribir headers
-            for (int i = 0; i < outputHeaders.Count; i++)
-            {
-                worksheet.Cell(1, i + 1).Value = outputHeaders[i];
-            }
-
-            // Paso 5: Procesar datos por streaming y escribir directamente
-            var allKeys = new HashSet<string>();
-            var currentRow = 2; // Empezar en la fila 2 (después de headers)
-            var processedKeys = 0;
-
-            Console.WriteLine($"MergeService: Procesando datos con escritura directa...");
-
-            // Primero, recolectar todas las claves únicas de todos los archivos
-            Console.WriteLine($"MergeService: Recolectando claves únicas...");
+            // Paso 1: Leer solo headers de todas las hojas seleccionadas y preparar el plan de escritura
+            var sheetContexts = new List<(FileSheetSelection Selection, SheetHeaders Headers)>();
             foreach (var fileSelection in fileSheetSelectionsList)
             {
                 if (!fileSelection.HasSelectedSheets) continue;
@@ -701,121 +629,191 @@ namespace ExcelConsumerApp.Services
 
                 foreach (var sheetHeaders in filteredSheets)
                 {
-                    ct.ThrowIfCancellationRequested();
-                    
-                    var normalizedHeaders = sheetHeaders.Headers.ToDictionary(h => normalizer.Normalize(h), h => h);
-                    
-                    if (!normalizedHeaders.TryGetValue(keyColumnNormalized, out var originalKeyHeader))
-                        continue;
-
-                    Console.WriteLine($"MergeService: Recolectando claves de {sheetHeaders.SheetName}...");
-
-                    await foreach (var row in reader.ReadSheetDataStreamAsync(
-                        fileSelection.FilePath, 
-                        sheetHeaders.SheetName, 
-                        sheetHeaders.Headers, 
-                        100,
-                        ct))
-                    {
-                        ct.ThrowIfCancellationRequested();
-                        
-                        var key = row.TryGetValue(originalKeyHeader, out var keyValue) ? keyValue?.Trim() : null;
-                        if (string.IsNullOrWhiteSpace(key)) continue;
-
-                        allKeys.Add(key);
-                    }
+                    sheetContexts.Add((fileSelection, sheetHeaders));
                 }
             }
 
-            Console.WriteLine($"MergeService: Encontradas {allKeys.Count} claves únicas");
+            if (!sheetContexts.Any())
+                throw new InvalidOperationException("No se encontraron hojas válidas en los archivos.");
 
-            // Ahora procesar cada clave y buscar datos en todos los archivos
-            foreach (var key in allKeys.OrderBy(k => k))
+            var missingKeySheets = new List<string>();
+            var outputHeaders = new List<string> { "Key" };
+            var processingPlans = new List<SheetProcessingPlan>();
+            var nextColumnIndex = 2;
+
+            foreach (var (selection, sheet) in sheetContexts)
+            {
+                var headerInfos = sheet.Headers
+                    .Select(header => new HeaderInfo(header, normalizer.Normalize(header)))
+                    .ToList();
+
+                var keyHeaderInfo = headerInfos.FirstOrDefault(h => h.Normalized == keyColumnNormalized);
+                if (keyHeaderInfo is null)
+                {
+                    missingKeySheets.Add($"{Path.GetFileName(sheet.FileName)}:{sheet.SheetName}");
+                    continue;
+                }
+
+                var nonKeyHeaders = headerInfos
+                    .Where(h => h.Normalized != keyColumnNormalized)
+                    .ToList();
+
+                var fileNameWithoutExt = Path.GetFileNameWithoutExtension(sheet.FileName);
+                var sheetKey = $"{fileNameWithoutExt}:{sheet.SheetName}";
+
+                foreach (var header in nonKeyHeaders)
+                {
+                    outputHeaders.Add($"{sheetKey}:{header.Original}");
+                }
+
+                processingPlans.Add(new SheetProcessingPlan(
+                    selection.FilePath,
+                    sheet.FileName,
+                    sheet.SheetName,
+                    sheet.Headers,
+                    keyHeaderInfo.Original,
+                    nonKeyHeaders,
+                    nextColumnIndex));
+
+                nextColumnIndex += nonKeyHeaders.Count;
+            }
+
+            if (missingKeySheets.Any())
+            {
+                throw new InvalidOperationException(
+                    $"La columna clave '{keyColumnNormalized}' no existe en las siguientes hojas:\n{string.Join("\n", missingKeySheets)}\n\n" +
+                    "Verifica que la columna existe en todas las hojas o elige una columna diferente.");
+            }
+
+            // Paso 2: Crear Excel directamente con escritura streaming
+            using var workbook = new ClosedXML.Excel.XLWorkbook();
+            var worksheet = workbook.Worksheets.Add("Merged");
+
+            for (int i = 0; i < outputHeaders.Count; i++)
+            {
+                worksheet.Cell(1, i + 1).Value = outputHeaders[i];
+            }
+
+            // Paso 3: Recolectar todas las claves únicas de todas las hojas
+            Console.WriteLine("MergeService: Recolectando claves únicas...");
+            var allKeys = new HashSet<string>();
+
+            foreach (var plan in processingPlans)
             {
                 ct.ThrowIfCancellationRequested();
-                
-                if (processedKeys % 100 == 0)
+
+                Console.WriteLine($"MergeService: Leyendo claves de {Path.GetFileName(plan.DisplayFileName)}:{plan.SheetName}...");
+
+                await using var keyEnumerator = reader
+                    .ReadSheetDataStreamAsync(plan.FilePath, plan.SheetName, plan.OriginalHeaders, 100, ct)
+                    .GetAsyncEnumerator(ct);
+
+                while (await keyEnumerator.MoveNextAsync())
                 {
-                    Console.WriteLine($"MergeService: Procesando clave {processedKeys + 1}/{allKeys.Count}: {key}");
+                    ct.ThrowIfCancellationRequested();
+
+                    var row = keyEnumerator.Current;
+                    if (!row.TryGetValue(plan.OriginalKeyHeader, out var rawKey))
+                        continue;
+
+                    var key = rawKey?.Trim();
+                    if (string.IsNullOrWhiteSpace(key))
+                        continue;
+
+                    allKeys.Add(key);
                 }
-
-                // Escribir clave en la primera columna
-                worksheet.Cell(currentRow, 1).Value = key;
-
-                // Procesar cada hoja para esta clave
-                int colIndex = 2; // Empezar en la columna 2 (después de Key)
-                
-                foreach (var sheetHeaders in allSheetHeaders)
-                {
-                    var foundData = false;
-                    
-                    // Buscar datos para esta clave en esta hoja específica
-                    foreach (var fileSelection in fileSheetSelectionsList)
-                    {
-                        if (!fileSelection.HasSelectedSheets) continue;
-                        if (!fileSelection.SelectedSheets.Contains(sheetHeaders.SheetName)) continue;
-
-                        var normalizedHeaders = sheetHeaders.Headers.ToDictionary(h => normalizer.Normalize(h), h => h);
-                        
-                        if (!normalizedHeaders.TryGetValue(keyColumnNormalized, out var originalKeyHeader))
-                            continue;
-
-                        // Buscar la fila con esta clave en esta hoja específica
-                        await foreach (var row in reader.ReadSheetDataStreamAsync(
-                            fileSelection.FilePath, 
-                            sheetHeaders.SheetName, 
-                            sheetHeaders.Headers, 
-                            100,
-                            ct))
-                        {
-                            var rowKey = row.TryGetValue(originalKeyHeader, out var keyValue) ? keyValue?.Trim() : null;
-                            if (rowKey == key)
-                            {
-                                // Escribir datos de esta fila
-                                foreach (var header in sheetHeaders.Headers)
-                                {
-                                    var normalizedHeader = normalizer.Normalize(header);
-                                    if (normalizedHeader == keyColumnNormalized)
-                                        continue;
-                                        
-                                    var value = row.TryGetValue(header, out var cellValue) ? cellValue : null;
-                                    worksheet.Cell(currentRow, colIndex).Value = value ?? "";
-                                    colIndex++;
-                                }
-                                foundData = true;
-                                break;
-                            }
-                        }
-                        
-                        if (foundData) break;
-                    }
-                    
-                    if (!foundData)
-                    {
-                        // Escribir celdas vacías para esta hoja
-                        foreach (var header in sheetHeaders.Headers)
-                        {
-                            var normalizedHeader = normalizer.Normalize(header);
-                            if (normalizedHeader == keyColumnNormalized)
-                                continue;
-                                
-                            worksheet.Cell(currentRow, colIndex).Value = "";
-                            colIndex++;
-                        }
-                    }
-                }
-
-                currentRow++;
-                processedKeys++;
             }
 
-            Console.WriteLine($"MergeService: Procesadas {processedKeys} claves únicas");
+            var sortedKeys = allKeys.OrderBy(k => k, StringComparer.Ordinal).ToList();
+            Console.WriteLine($"MergeService: Encontradas {sortedKeys.Count} claves únicas. Escribiendo columna clave...");
 
-            // Guardar archivo
+            var keyToRowIndex = new Dictionary<string, int>(sortedKeys.Count);
+            var currentRow = 2;
+            foreach (var key in sortedKeys)
+            {
+                worksheet.Cell(currentRow, 1).Value = key;
+                keyToRowIndex[key] = currentRow;
+                currentRow++;
+            }
+
+            Console.WriteLine("MergeService: Integrando datos hoja por hoja...");
+
+            foreach (var plan in processingPlans)
+            {
+                ct.ThrowIfCancellationRequested();
+
+                if (plan.NonKeyHeaders.Count == 0)
+                {
+                    Console.WriteLine($"MergeService: {Path.GetFileName(plan.DisplayFileName)}:{plan.SheetName} solo contiene la columna clave, se omite escritura de datos.");
+                    continue;
+                }
+
+                Console.WriteLine($"MergeService: Procesando {Path.GetFileName(plan.DisplayFileName)}:{plan.SheetName}...");
+                var foundKeys = new HashSet<string>();
+
+                await using var rowEnumerator = reader
+                    .ReadSheetDataStreamAsync(plan.FilePath, plan.SheetName, plan.OriginalHeaders, 100, ct)
+                    .GetAsyncEnumerator(ct);
+
+                while (await rowEnumerator.MoveNextAsync())
+                {
+                    ct.ThrowIfCancellationRequested();
+
+                    var row = rowEnumerator.Current;
+                    if (!row.TryGetValue(plan.OriginalKeyHeader, out var rawKey))
+                        continue;
+
+                    var key = rawKey?.Trim();
+                    if (string.IsNullOrWhiteSpace(key))
+                        continue;
+
+                    if (!keyToRowIndex.TryGetValue(key, out var rowIndex))
+                        continue;
+
+                    var columnIndex = plan.ColumnOffset;
+                    foreach (var header in plan.NonKeyHeaders)
+                    {
+                        var value = row.TryGetValue(header.Original, out var cellValue) ? cellValue : null;
+                        worksheet.Cell(rowIndex, columnIndex).Value = value ?? string.Empty;
+                        columnIndex++;
+                    }
+
+                    foundKeys.Add(key);
+                }
+
+                if (foundKeys.Count == keyToRowIndex.Count)
+                    continue;
+
+                foreach (var missingKey in sortedKeys)
+                {
+                    if (foundKeys.Contains(missingKey))
+                        continue;
+
+                    var rowIndex = keyToRowIndex[missingKey];
+                    var columnIndex = plan.ColumnOffset;
+                    foreach (var header in plan.NonKeyHeaders)
+                    {
+                        worksheet.Cell(rowIndex, columnIndex).Value = string.Empty;
+                        columnIndex++;
+                    }
+                }
+            }
+
             workbook.SaveAs(outputPath);
-            Console.WriteLine($"MergeService: Archivo guardado en {outputPath} con {currentRow - 1} filas");
+            Console.WriteLine($"MergeService: Archivo guardado en {outputPath} con {sortedKeys.Count} filas de datos");
 
             return outputPath;
         }
+
+        private sealed record HeaderInfo(string Original, string Normalized);
+
+        private sealed record SheetProcessingPlan(
+            string FilePath,
+            string DisplayFileName,
+            string SheetName,
+            IReadOnlyList<string> OriginalHeaders,
+            string OriginalKeyHeader,
+            IReadOnlyList<HeaderInfo> NonKeyHeaders,
+            int ColumnOffset);
     }
 }
