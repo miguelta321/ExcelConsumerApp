@@ -1,5 +1,4 @@
-﻿using System.Configuration;
-using System.Data;
+using System.Text;
 using System.Windows;
 
 namespace ExcelConsumerApp
@@ -9,6 +8,9 @@ namespace ExcelConsumerApp
     /// </summary>
     public partial class App : Application
     {
+        static App()
+        {
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        }
     }
-
 }
