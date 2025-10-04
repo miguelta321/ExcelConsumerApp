@@ -1,0 +1,473 @@
+﻿<Window x:Class="ExcelConsumerApp.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:local="clr-namespace:ExcelConsumerApp"
+        xmlns:converters="clr-namespace:ExcelConsumerApp.Converters"
+        mc:Ignorable="d"
+        Title="Excel Consumer - Merge de Archivos" 
+        Height="600" Width="900"
+        MinHeight="500" MinWidth="500"
+        Background="#1E1E1E"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize">
+    
+    <Window.Resources>
+        <!-- Colores del tema oscuro -->
+        <SolidColorBrush x:Key="BackgroundBrush" Color="#1E1E1E"/>
+        <SolidColorBrush x:Key="CardBrush" Color="#2D2D2D"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#0078D4"/>
+        <SolidColorBrush x:Key="AccentHoverBrush" Color="#106EBE"/>
+        <SolidColorBrush x:Key="TextBrush" Color="#FFFFFF"/>
+        <SolidColorBrush x:Key="TextSecondaryBrush" Color="#CCCCCC"/>
+        <SolidColorBrush x:Key="BorderBrush" Color="#404040"/>
+        <SolidColorBrush x:Key="SuccessBrush" Color="#107C10"/>
+        <SolidColorBrush x:Key="WarningBrush" Color="#FF8C00"/>
+        <SolidColorBrush x:Key="ErrorBrush" Color="#D13438"/>
+        
+        <!-- Estilos para botones -->
+        <Style x:Key="PrimaryButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="20,12"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" 
+                                CornerRadius="6" 
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" 
+                                            VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter Property="Background" Value="#005A9E"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Background" Value="#404040"/>
+                                <Setter Property="Foreground" Value="#808080"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        
+        <Style x:Key="SecondaryButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3D3D3D"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <!-- Estilo para el ToggleButton dentro del ComboBox -->
+        <Style x:Key="ComboBoxToggleButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="templateRoot"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="contentText"
+                                          Grid.Column="0"
+                                          Text="{TemplateBinding Content}"
+                                          HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          Margin="{TemplateBinding Padding}"
+                                          Foreground="{StaticResource TextBrush}"
+                                          FontSize="14"
+                                          IsHitTestVisible="False"/>
+                                <Path x:Name="arrow"
+                                      Grid.Column="1"
+                                      HorizontalAlignment="Center"
+                                      VerticalAlignment="Center"
+                                      Data="M0,0 L4,4 L8,0 Z"
+                                      Fill="{StaticResource TextBrush}"
+                                      Margin="0,0,8,0"/>
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="templateRoot" Property="Background" Value="#3D3D3D"/>
+                                <Setter TargetName="templateRoot" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="templateRoot" Property="Background" Value="#3D3D3D"/>
+                                <Setter TargetName="templateRoot" Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="templateRoot" Property="Opacity" Value="0.6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Estilo para ComboBoxItem -->
+        <Style x:Key="ModernComboBoxItemStyle" TargetType="ComboBoxItem">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBoxItem">
+                        <Border x:Name="Border"
+                                Background="{TemplateBinding Background}"
+                                BorderThickness="0"
+                                CornerRadius="0">
+                            <ContentPresenter Margin="{TemplateBinding Padding}"
+                                            HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                            VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                            Content="{TemplateBinding Content}"
+                                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                                            ContentStringFormat="{TemplateBinding ContentStringFormat}"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#3D3D3D"/>
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="{StaticResource AccentBrush}"/>
+                                <Setter Property="Foreground" Value="White"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Foreground" Value="#808080"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Estilo para ComboBox -->
+        <Style x:Key="ModernComboBoxStyle" TargetType="ComboBox">
+            <Setter Property="Background" Value="{StaticResource CardBrush}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="VerticalContentAlignment" Value="Center"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="MaxDropDownHeight" Value="200"/>
+            <Setter Property="ScrollViewer.CanContentScroll" Value="True"/>
+            <Setter Property="ItemContainerStyle" Value="{StaticResource ModernComboBoxItemStyle}"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid x:Name="templateRoot" SnapsToDevicePixels="True">
+                            <ToggleButton x:Name="PART_DropDownToggle"
+                                          Style="{StaticResource ComboBoxToggleButtonStyle}"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}"
+                                          Focusable="False"
+                                          Background="{TemplateBinding Background}"
+                                          BorderBrush="{TemplateBinding BorderBrush}"
+                                          BorderThickness="{TemplateBinding BorderThickness}"
+                                          Padding="{TemplateBinding Padding}"
+                                          HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                          VerticalContentAlignment="{TemplateBinding VerticalContentAlignment}"
+                                          Content="{TemplateBinding SelectionBoxItem}"
+                                          ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                          ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}"/>
+                            <Popup x:Name="PART_Popup"
+                                   AllowsTransparency="True"
+                                   Placement="Bottom"
+                                   IsOpen="{TemplateBinding IsDropDownOpen}"
+                                   StaysOpen="False"
+                                   PopupAnimation="Slide"
+                                   MinHeight="{TemplateBinding MinHeight}"
+                                   MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                   Width="{Binding ActualWidth, ElementName=templateRoot}">
+                                <Border x:Name="DropDownBorder"
+                                        Background="{StaticResource CardBrush}"
+                                        BorderBrush="{StaticResource BorderBrush}"
+                                        BorderThickness="1"
+                                        CornerRadius="6"
+                                        Margin="0,4,0,0">
+                                    <ScrollViewer x:Name="DropDownScrollViewer"
+                                                  MaxHeight="{TemplateBinding MaxDropDownHeight}"
+                                                  SnapsToDevicePixels="True">
+                                        <StackPanel IsItemsHost="True" KeyboardNavigation.DirectionalNavigation="Contained"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="HasItems" Value="False">
+                                <Setter TargetName="DropDownBorder" Property="MinHeight" Value="95"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="templateRoot" Property="Opacity" Value="0.6"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                </Trigger>
+                <Trigger Property="IsDropDownOpen" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+                </Trigger>
+                <Trigger Property="IsEnabled" Value="False">
+                    <Setter Property="Opacity" Value="0.6"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        
+        <!-- Estilo para TextBlock -->
+        <Style x:Key="HeaderTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Margin" Value="0,0,0,8"/>
+        </Style>
+        
+        <Style x:Key="BodyTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="20"/>
+        </Style>
+        
+        <Style x:Key="StatusTextStyle" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
+            <Setter Property="FontSize" Value="14"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="LineHeight" Value="20"/>
+            <Setter Property="Padding" Value="12,8"/>
+        </Style>
+        
+        <!-- Converters -->
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+        <converters:ListToStringConverter x:Key="ListToStringConverter"/>
+        <converters:SheetSelectionConverter x:Key="SheetSelectionConverter"/>
+        <converters:InvertedBooleanToVisibilityConverter x:Key="InvertedBooleanToVisibilityConverter"/>
+    </Window.Resources>
+    
+    <ScrollViewer VerticalScrollBarVisibility="Auto" 
+                  HorizontalScrollBarVisibility="Disabled"
+                  Padding="0">
+        <Grid Margin="24" MinWidth="400">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+        
+        <!-- Header -->
+        <StackPanel Grid.Row="0" Margin="0,0,0,24">
+            <TextBlock Text="📊 Excel Consumer" 
+                      FontSize="28" 
+                      FontWeight="Bold" 
+                      Foreground="{StaticResource TextBrush}" 
+                      Margin="0,0,0,8"/>
+            <TextBlock Text="Combina múltiples archivos Excel por columna clave" 
+                      Style="{StaticResource BodyTextStyle}"/>
+        </StackPanel>
+        
+        <!-- Sección de carga de archivos -->
+        <Border Grid.Row="1" 
+                Background="{StaticResource CardBrush}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="1" 
+                CornerRadius="8" 
+                Padding="20" 
+                Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="📁 Archivos Seleccionados" 
+                          Style="{StaticResource HeaderTextStyle}"/>
+                <StackPanel Margin="0,0,0,12">
+                    <Button Content="📂 Cargar Archivos Excel" 
+                           Command="{Binding SelectFilesCommand}" 
+                           Style="{StaticResource PrimaryButtonStyle}" 
+                           Margin="0,0,0,8"
+                           HorizontalAlignment="Left"/>
+                    <TextBlock Text="{Binding FilesCount, StringFormat='{}{0} archivo(s) seleccionado(s)'}" 
+                              Style="{StaticResource BodyTextStyle}"/>
+                </StackPanel>
+                <Border Background="{StaticResource CardBrush}" 
+                        BorderBrush="{StaticResource BorderBrush}" 
+                        BorderThickness="1" 
+                        CornerRadius="6" 
+                        Margin="0,8,0,0">
+                    <TextBlock Text="{Binding Status}" 
+                              Style="{StaticResource StatusTextStyle}"/>
+                </Border>
+            </StackPanel>
+        </Border>
+        
+        <!-- Sección de selección de hojas -->
+        <Border Grid.Row="2" 
+                Background="{StaticResource CardBrush}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="1" 
+                CornerRadius="8" 
+                Padding="20" 
+                Margin="0,0,0,16">
+            <StackPanel>
+                <TextBlock Text="📋 Selección de Hojas" 
+                          Style="{StaticResource HeaderTextStyle}"/>
+                <TextBlock Text="Selecciona qué hojas usar de cada archivo (por defecto todas están seleccionadas):" 
+                          Style="{StaticResource BodyTextStyle}" 
+                          Margin="0,0,0,12"/>
+                
+                <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl ItemsSource="{Binding FileSheetSelections}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#3D3D3D" 
+                                        BorderBrush="{StaticResource BorderBrush}" 
+                                        BorderThickness="1" 
+                                        CornerRadius="6" 
+                                        Padding="16" 
+                                        Margin="0,0,0,8">
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding FileName}" 
+                                                  FontWeight="SemiBold" 
+                                                  Foreground="{StaticResource TextBrush}" 
+                                                  Margin="0,0,0,8"/>
+                                        <TextBlock Text="Selecciona las hojas a usar:" 
+                                                  Style="{StaticResource BodyTextStyle}" 
+                                                  Margin="0,0,0,8"/>
+                                        
+                                        <ItemsControl ItemsSource="{Binding SheetItems}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox Content="{Binding SheetName}" 
+                                                            IsChecked="{Binding IsSelected}"
+                                                            Foreground="{StaticResource TextBrush}" 
+                                                            Margin="0,2"/>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                        
+                                        <TextBlock Text="Hojas seleccionadas:" 
+                                                  Style="{StaticResource BodyTextStyle}" 
+                                                  Margin="0,8,0,4"/>
+                                        <TextBlock Text="{Binding SelectedSheets, Converter={StaticResource ListToStringConverter}}" 
+                                                  Style="{StaticResource BodyTextStyle}" 
+                                                  FontStyle="Italic"/>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,12,0,0">
+                    <Button Content="✅ Continuar con Selección Actual" 
+                           Command="{Binding ConfirmSheetSelectionCommand}" 
+                           Style="{StaticResource PrimaryButtonStyle}" 
+                           Margin="0,0,12,0"/>
+                    <Button Content="🔄 Seleccionar Todas" 
+                           Command="{Binding SelectAllSheetsCommand}"
+                           Style="{StaticResource SecondaryButtonStyle}"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Sección de configuración -->
+        <Border Grid.Row="3" 
+                Background="{StaticResource CardBrush}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="1" 
+                CornerRadius="8" 
+                Padding="20" 
+                Margin="0,0,0,16"
+                Visibility="{Binding ShowSheetSelection, Converter={StaticResource InvertedBooleanToVisibilityConverter}}">
+            <StackPanel>
+                <TextBlock Text="⚙️ Configuración de Merge" 
+                          Style="{StaticResource HeaderTextStyle}"/>
+                <StackPanel Margin="0,8,0,0">
+                    <TextBlock Text="Columna clave:" 
+                             Style="{StaticResource BodyTextStyle}" 
+                             Margin="0,0,0,8"/>
+                    <ComboBox ItemsSource="{Binding CommonColumns}" 
+                             SelectedItem="{Binding SelectedColumn}" 
+                             Style="{StaticResource ModernComboBoxStyle}" 
+                             MinWidth="200" 
+                             MaxWidth="400"/>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+        
+        <!-- Sección de progreso -->
+        <Border Grid.Row="4" 
+                Background="{StaticResource CardBrush}" 
+                BorderBrush="{StaticResource BorderBrush}" 
+                BorderThickness="1" 
+                CornerRadius="8" 
+                Padding="20" 
+                Margin="0,0,0,16"
+                Visibility="{Binding IsProcessing, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel>
+                <TextBlock Text="🔄 Procesando..." 
+                           Style="{StaticResource HeaderTextStyle}" 
+                           Margin="0,0,0,12"/>
+                <TextBlock Text="{Binding ProgressMessage}" 
+                           Style="{StaticResource BodyTextStyle}" 
+                           Margin="0,0,0,8"/>
+                <ProgressBar Value="{Binding ProgressPercentage}" 
+                            Maximum="100" 
+                            Height="8" 
+                            Background="#404040" 
+                            Foreground="{StaticResource AccentBrush}" 
+                            Margin="0,0,0,8"/>
+                <TextBlock Text="{Binding ProgressPercentage, StringFormat='{}{0}%'}" 
+                           Style="{StaticResource BodyTextStyle}" 
+                           HorizontalAlignment="Right"/>
+                <Button Content="❌ Cancelar" 
+                        Command="{Binding CancelOperationCommand}" 
+                        Style="{StaticResource SecondaryButtonStyle}" 
+                        HorizontalAlignment="Left" 
+                        Margin="0,12,0,0"/>
+            </StackPanel>
+        </Border>
+
+        <!-- Botón de acción -->
+        <StackPanel Grid.Row="4" 
+                   Margin="0,0,0,16"
+                   Visibility="{Binding ShowSheetSelection, Converter={StaticResource InvertedBooleanToVisibilityConverter}}">
+            <Button Content="🚀 Iniciar Merge" 
+                   Command="{Binding StartMergeCommand}" 
+                   Style="{StaticResource PrimaryButtonStyle}" 
+                   FontSize="16" 
+                   Padding="24,16"
+                   HorizontalAlignment="Left"/>
+        </StackPanel>
+        
+    </Grid>
+    </ScrollViewer>
+</Window>
